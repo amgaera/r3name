@@ -1,11 +1,26 @@
+extern crate docopt;
 extern crate regex;
 
-use std::env;
 use std::fs;
 use std::io;
 use std::io::Write;
 use std::path::Path;
+use docopt::Docopt;
 use regex::Regex;
+
+const USAGE: &'static str = "
+Usage: r3name --pattern <pattern> --replacement <replacement> <path>...
+       r3name -h | --help
+       r3name --version
+
+Options:
+    -h --help                    Show this screen.
+    --version                    Show version.
+    --pattern <pattern>          Pattern to match in the provided paths
+    --replacement <replacement>  String used to replace pattern matches
+";
+
+const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
 fn rename_path(path: &str, pattern: &Regex, replacement: &str) {
     if !pattern.is_match(path) {
@@ -35,9 +50,15 @@ fn rename_path(path: &str, pattern: &Regex, replacement: &str) {
 }
 
 fn main() {
-    let pattern = env::args().nth(1).unwrap();
+    let args = Docopt::new(USAGE).and_then(|d| d.parse()).unwrap_or_else(|e| e.exit());
 
-    let pattern = match Regex::new(&pattern) {
+    if args.get_bool("--version") {
+        println!("r3name {}", VERSION.unwrap_or("unknown"));
+        return;
+    }
+
+    let pattern = args.get_str("--pattern");
+    let pattern = match Regex::new(pattern) {
         Ok(regex) => regex,
         Err(error) => {
             writeln!(io::stderr(), "Invalid pattern: {}", error).unwrap();
@@ -45,9 +66,9 @@ fn main() {
         }
     };
 
-    let replacement = env::args().nth(2).unwrap();
+    let replacement = args.get_str("--replacement");
 
-    for path in env::args().skip(3) {
-        rename_path(&path, &pattern, &replacement);
+    for path in args.get_vec("<path>") {
+        rename_path(path, &pattern, replacement);
     }
 }
