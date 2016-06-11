@@ -9,7 +9,7 @@ use docopt::Docopt;
 use regex::Regex;
 
 const USAGE: &'static str = "
-Usage: r3name --pattern <pattern> --replacement <replacement> <path>...
+Usage: r3name --pattern <pattern> --replacement <replacement> [--dry-run] <path>...
        r3name -h | --help
        r3name --version
 
@@ -18,11 +18,12 @@ Options:
     --version                    Show version.
     --pattern <pattern>          Pattern to match in the provided paths
     --replacement <replacement>  String used to replace pattern matches
+    --dry-run                    Show what would be renamed, but don't rename anything.
 ";
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
-fn rename_path(path: &str, pattern: &Regex, replacement: &str) {
+fn rename_path(path: &str, pattern: &Regex, replacement: &str, dry_run: bool) {
     if !pattern.is_match(path) {
         println!("Skipping `{}`", path);
         return;
@@ -37,6 +38,11 @@ fn rename_path(path: &str, pattern: &Regex, replacement: &str) {
 
     if Path::new(&new_path).exists() {
         writeln!(io::stderr(), "Failed to rename `{}`: destination path `{}` already exists", path, new_path).unwrap();
+        return;
+    }
+
+    if dry_run {
+        println!("Would rename `{}` -> `{}`", path, new_path);
         return;
     }
 
@@ -67,8 +73,9 @@ fn main() {
     };
 
     let replacement = args.get_str("--replacement");
+    let dry_run = args.get_bool("--dry-run");
 
     for path in args.get_vec("<path>") {
-        rename_path(path, &pattern, replacement);
+        rename_path(path, &pattern, replacement, dry_run);
     }
 }
