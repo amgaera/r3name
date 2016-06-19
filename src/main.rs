@@ -1,6 +1,7 @@
 extern crate docopt;
 extern crate regex;
 
+use std::fmt;
 use std::fs;
 use std::io;
 use std::io::Write;
@@ -23,36 +24,49 @@ Options:
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
-fn rename_path(path: &str, pattern: &Regex, replacement: &str, dry_run: bool) {
+#[derive(Debug)]
+enum RenameError<'a> {
+    RegexDoesNotMatch(&'a Regex, &'a str),
+    SourceDoesNotExist(&'a str),
+    DestinationExists(String),
+    FsError(io::Error)
+}
+
+impl<'a> fmt::Display for RenameError<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            RenameError::RegexDoesNotMatch(pattern, path) =>
+                write!(f, "path `{}` doesn't match regex `{}`)", path, pattern),
+            RenameError::SourceDoesNotExist(path) =>
+                write!(f, "source path `{}` doesn't exist", path),
+            RenameError::DestinationExists(ref path) =>
+                write!(f, "destination path `{}` already exists", path),
+            RenameError::FsError(ref error) => write!(f, "{}", error)
+        }
+    }
+}
+
+fn rename_path<'a>(path: &'a str, pattern: &'a Regex, replacement: &str, dry_run: bool)
+                   -> Result<String, RenameError<'a>> {
     if !pattern.is_match(path) {
-        println!("Skipping `{}`", path);
-        return;
+        return Err(RenameError::RegexDoesNotMatch(pattern, path));
     }
 
     if !Path::new(path).exists() {
-        writeln!(io::stderr(), "Source path `{}` doesn't exist", path).unwrap();
-        return;
+        return Err(RenameError::SourceDoesNotExist(path));
     }
 
     let new_path = pattern.replace(path, replacement);
 
     if Path::new(&new_path).exists() {
-        writeln!(io::stderr(), "Failed to rename `{}`: destination path `{}` already exists", path, new_path).unwrap();
-        return;
+        return Err(RenameError::DestinationExists(new_path));
     }
 
     if dry_run {
-        println!("Would rename `{}` -> `{}`", path, new_path);
-        return;
+        return Ok(new_path);
     }
 
-    match fs::rename(path, &new_path) {
-        Ok(_) => println!("Renamed `{}` -> `{}`", path, new_path),
-        Err(error) => {
-            writeln!(io::stderr(), "Failed to rename `{}` -> `{}`: {}", path, new_path, error).unwrap();
-            return;
-        }
-    };
+    return fs::rename(path, &new_path).map(|()| new_path).map_err(RenameError::FsError);
 }
 
 fn main() {
@@ -76,6 +90,14 @@ fn main() {
     let dry_run = args.get_bool("--dry-run");
 
     for path in args.get_vec("<path>") {
-        rename_path(path, &pattern, replacement, dry_run);
+        match rename_path(path, &pattern, replacement, dry_run) {
+            Ok(new_path) => {
+                let prefix = if dry_run { "Would rename" } else { "Renamed" };
+                println!("{} `{}` -> `{}`", prefix, path, new_path);
+            },
+            Err(RenameError::RegexDoesNotMatch(_, _)) =>
+                println!("Skipping `{}` (doesn't match regex `{}`)", path, pattern),
+            Err(error) => writeln!(io::stderr(), "Failed to rename `{}`: {}", path, error).unwrap()
+        }
     }
 }
